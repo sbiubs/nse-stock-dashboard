@@ -1,9 +1,9 @@
-# NSE Stock Dashboard & Screener
+# NSE + BSE Stock Dashboard & Screener
 
-A live-ish NSE market dashboard: prices and fundamentals from **Yahoo
-Finance (free, no signup)**, and a rule-based screener that surfaces
-the day's top 5 short-term and top 5 long-term buy/sell candidates —
-plus a one-click Excel export.
+A live-ish market dashboard covering **both NSE and BSE**: prices and
+fundamentals from **Yahoo Finance (free, no signup)**, and a rule-based
+screener that surfaces the day's top 5 short-term and top 5 long-term
+buy/sell candidates — plus a one-click Excel export.
 
 **No broker account, no API key, no daily login required.** This runs
 entirely on free public data sources.
@@ -41,19 +41,30 @@ sidebar goes straight to picking your universe and running a screen.
 
 ## Using it
 
-1. Pick a universe in the sidebar: Nifty 50, Nifty 500, or your own
-   `custom_watchlist.csv` (edit that file directly — one symbol per
-   line, NSE trading symbols like `RELIANCE`, `TCS`).
-2. Set how many symbols to screen.
-3. Click **Run today's screen**.
-4. Browse tabs: Overview (top 5 calls), Live Snapshot (auto-refreshing
-   delayed prices + move alerts), Short-Term Calls, Long-Term Calls,
-   **Search & Stock Detail** (look up *any* NSE stock by symbol, not
-   just today's screened list — scores it fresh on the spot, plus
-   one-click links to Screener, MoneyControl, Trendlyne, Tickertape,
-   StockEdge, NSE, and Google Finance for deeper research), and Full
+1. Pick an **Exchange**: NSE, BSE, or Both.
+2. For NSE, pick a universe: Nifty 50, Nifty 500, **All NSE Listed
+   (~2000 — the complete list, not just the Nifty 500 subset)**, or
+   your own `custom_watchlist.csv`.
+3. For BSE, choose scope: top ~200 by listing (fast, default) or **all
+   active BSE equities (~5000+, slow)**. BSE's list comes from BSE's
+   own public API automatically. **If BSE's API is unreachable** (it
+   can occasionally block or change), the app falls back to
+   `custom_bse_watchlist.csv` — edit that file with BSE scrip
+   codes/symbols you want tracked as a backup.
+4. Set how many symbols to screen — the slider goes up to 3000, but
+   screening the full NSE + BSE universe together can take several
+   minutes given free-data rate limits; start smaller to get a feel
+   for timing before running the maximum.
+5. Click **Run today's screen**.
+6. Browse tabs: Overview (top 5 calls, tagged by exchange), Live
+   Snapshot (auto-refreshing delayed prices + move alerts), Short-Term
+   Calls, Long-Term Calls, **Search & Stock Detail** (look up *any*
+   NSE or BSE stock by symbol — including ones outside today's
+   screened list — scored fresh on the spot, plus one-click links to
+   Screener, MoneyControl, Trendlyne, Tickertape, StockEdge, NSE/BSE
+   official pages, and Google Finance for deeper research), and Full
    Screen (every stock, sortable).
-5. Download the **Excel report** — color-coded Buy/Sell/Hold sheets,
+7. Download the **Excel report** — color-coded Buy/Sell/Hold sheets,
    ready to file or share.
 
 ## Live Snapshot tab
@@ -85,7 +96,7 @@ Cloud (free), no secrets to configure since there's no API key.
 |---|---|
 | `app.py` | Streamlit dashboard (main entry point) |
 | `config.py` | Screening thresholds, universe settings |
-| `data_fetcher.py` | Batched historical + snapshot price data via Yahoo Finance |
+| `data_fetcher.py` | Batched historical + snapshot price data via Yahoo Finance (NSE + BSE) |
 | `indicators.py` | RSI, SMA/EMA, MACD, volume surge, ATR calculations |
 | `fundamentals.py` | P/E, ROE, D/E, growth via Yahoo Finance |
 | `screener.py` | Scoring rules (short-term technical, long-term fundamental) |
@@ -93,7 +104,8 @@ Cloud (free), no secrets to configure since there's no API key.
 | `live_poller.py` | Auto-refresh snapshot polling for the Live tab |
 | `research_links.py` | One-click links out to external research platforms per stock |
 | `excel_export.py` | Color-coded multi-sheet Excel report builder |
-| `custom_watchlist.csv` | Your own symbol list, if not using Nifty 50/500 |
+| `custom_watchlist.csv` | Your own NSE symbol list, if not using Nifty 50/500 |
+| `custom_bse_watchlist.csv` | Fallback BSE symbol list, used if BSE's public API is unreachable |
 
 ## A note on external research platforms
 

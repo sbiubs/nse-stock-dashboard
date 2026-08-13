@@ -1,14 +1,23 @@
 """
-Central configuration for the NSE Stock Dashboard.
+Central configuration for the NSE + BSE Stock Dashboard.
 No API keys or broker login required — all data comes from free,
-public sources (Yahoo Finance for prices/fundamentals, NSE's public
-CSV for the Nifty 500 constituent list).
+public sources (Yahoo Finance for prices/fundamentals, NSE's and
+BSE's own public lists for the stock universe).
 """
 import os
 
+# --- Exchange(s) to screen ---
+EXCHANGE = "NSE"  # options: "NSE", "BSE", "BOTH"
+
 # --- Universe to screen ---
-DEFAULT_UNIVERSE = "NIFTY500"  # options: "NIFTY50", "NIFTY500", "CUSTOM"
+DEFAULT_UNIVERSE = "NIFTY500"  # options: "NIFTY50", "NIFTY500", "NSE_ALL", "CUSTOM"
 CUSTOM_WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "custom_watchlist.csv")
+CUSTOM_BSE_WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "custom_bse_watchlist.csv")
+
+# How many BSE-listed equities to pull into the universe by default when
+# not explicitly overridden (BSE lists thousands of scrips, many thinly
+# traded). Set to 0 or -1 in the sidebar's "all" option to fetch everything.
+BSE_DEFAULT_LIMIT = 200
 
 # --- Screening thresholds (tune these to your own risk appetite) ---
 SHORT_TERM_RULES = {

@@ -16,20 +16,35 @@ import excel_export
 import live_poller
 import research_links
 
-st.set_page_config(page_title="NSE Stock Dashboard", layout="wide", page_icon="📈")
+st.set_page_config(page_title="NSE + BSE Stock Dashboard", layout="wide", page_icon="📈")
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
-st.sidebar.title("📈 NSE Stock Dashboard")
+st.sidebar.title("📈 NSE + BSE Stock Dashboard")
 st.sidebar.caption("Prices & fundamentals via Yahoo Finance (free, delayed ~15-20 min) · No login required")
 
-universe_choice = st.sidebar.radio("Universe", ["NIFTY 500", "NIFTY 50", "Custom watchlist"])
-config.DEFAULT_UNIVERSE = {"NIFTY 500": "NIFTY500", "NIFTY 50": "NIFTY50", "Custom watchlist": "CUSTOM"}[universe_choice]
+exchange_choice = st.sidebar.radio("Exchange", ["NSE", "BSE", "Both"])
+config.EXCHANGE = {"NSE": "NSE", "BSE": "BSE", "Both": "BOTH"}[exchange_choice]
+
+if config.EXCHANGE in ("NSE", "BOTH"):
+    universe_choice = st.sidebar.radio("NSE universe", ["NIFTY 500", "NIFTY 50", "All NSE Listed (~2000)", "Custom watchlist"])
+    config.DEFAULT_UNIVERSE = {
+        "NIFTY 500": "NIFTY500", "NIFTY 50": "NIFTY50",
+        "All NSE Listed (~2000)": "NSE_ALL", "Custom watchlist": "CUSTOM",
+    }[universe_choice]
+if config.EXCHANGE in ("BSE", "BOTH"):
+    bse_scope = st.sidebar.radio("BSE scope", [f"Top {config.BSE_DEFAULT_LIMIT} by listing", "All active BSE equities (~5000+, slow)"])
+    config.BSE_DEFAULT_LIMIT = -1 if bse_scope.startswith("All") else 200
+    st.sidebar.caption(
+        "BSE list comes from BSE's own public scrip API. If it's unreachable, "
+        "add symbols to `custom_bse_watchlist.csv` as a fallback."
+    )
 
 max_symbols = st.sidebar.slider(
-    "Max symbols to screen (higher = slower)",
-    min_value=20, max_value=500, value=100, step=10,
+    "Max symbols to screen (higher = slower — screening the full ~2000 "
+    "NSE or ~5000+ BSE list can take several minutes)",
+    min_value=20, max_value=3000, value=100, step=10,
 )
 
 run_screen = st.sidebar.button("🔍 Run today's screen", type="primary")
@@ -44,7 +59,7 @@ st.sidebar.caption(
 # ---------------------------------------------------------------------------
 # Main area
 # ---------------------------------------------------------------------------
-st.title("NSE Market Screener")
+st.title("NSE + BSE Market Screener")
 st.caption(f"As of {dt.datetime.now().strftime('%d %b %Y, %I:%M %p')}")
 
 if "results_df" not in st.session_state:
@@ -53,7 +68,10 @@ if "results_df" not in st.session_state:
 
 if run_screen:
     try:
-        symbols = data_fetcher.get_universe_symbols()[:max_symbols]
+        stocks = data_fetcher.get_universe_symbols()[:max_symbols]
+        if not stocks:
+            st.error("No symbols found for this universe/exchange — check your selection or custom watchlist file.")
+            st.stop()
     except Exception as e:
         st.error(f"Couldn't load universe list: {e}")
         st.stop()
@@ -64,7 +82,7 @@ if run_screen:
         progress_bar.progress(min(i / total, 1.0), text=f"Screening {sym} ({i}/{total})")
 
     with st.spinner("Fetching data and scoring..."):
-        results_df = recommender.run_full_screen(symbols, progress_callback=_progress)
+        results_df = recommender.run_full_screen(stocks, progress_callback=_progress)
 
     progress_bar.empty()
     st.session_state.results_df = results_df
@@ -90,16 +108,16 @@ with tab_overview:
     col4.metric("Long-term BUY signals", (results_df["long_term_signal"] == "BUY").sum())
 
     st.subheader("Today's Top 5 — Short-Term Buy")
-    st.dataframe(top_calls["short_term_buys"][["symbol", "name", "last_close", "short_term_score", "short_term_notes"]], use_container_width=True, hide_index=True)
+    st.dataframe(top_calls["short_term_buys"][["symbol", "exchange", "name", "last_close", "short_term_score", "short_term_notes"]], use_container_width=True, hide_index=True)
 
     st.subheader("Today's Top 5 — Long-Term Buy")
-    st.dataframe(top_calls["long_term_buys"][["symbol", "name", "pe_ratio", "roe_pct", "long_term_score", "long_term_notes"]], use_container_width=True, hide_index=True)
+    st.dataframe(top_calls["long_term_buys"][["symbol", "exchange", "name", "pe_ratio", "roe_pct", "long_term_score", "long_term_notes"]], use_container_width=True, hide_index=True)
 
     excel_bytes = excel_export.build_workbook(results_df, top_calls)
     st.download_button(
         "⬇️ Download full report as Excel",
         data=excel_bytes,
-        file_name=f"nse_screen_{dt.date.today().isoformat()}.xlsx",
+        file_name=f"stock_screen_{dt.date.today().isoformat()}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -120,7 +138,7 @@ with tab_live:
     if "alerted_today" not in st.session_state:
         st.session_state.alerted_today = set()
 
-    live_symbols = results_df["symbol"].tolist()
+    live_symbols = results_df[["symbol", "exchange"]].to_dict("records")
 
     @st.fragment(run_every=poll_interval)
     def render_live_snapshot():
@@ -181,8 +199,8 @@ with tab_live:
         @st.fragment(run_every=rescore_interval_min * 60)
         def auto_rescore_fragment():
             try:
-                symbols = data_fetcher.get_universe_symbols()[:max_symbols]
-                results_df2 = recommender.run_full_screen(symbols)
+                stocks = data_fetcher.get_universe_symbols()[:max_symbols]
+                results_df2 = recommender.run_full_screen(stocks)
                 st.session_state.results_df = results_df2
                 st.session_state.top_calls = recommender.get_daily_top_calls(results_df2)
                 st.caption(f"✅ Advisory rescored at {dt.datetime.now().strftime('%H:%M:%S')} — check other tabs for updated calls.")
@@ -204,11 +222,12 @@ with tab_long:
     st.dataframe(top_calls["long_term_sells"], use_container_width=True, hide_index=True)
 
 with tab_detail:
-    st.subheader("🔎 Look up any NSE stock")
-    st.caption("Not limited to today's screened list — search any NSE-listed symbol directly.")
+    st.subheader("🔎 Look up any NSE or BSE stock")
+    st.caption("Not limited to today's screened list — search any symbol directly, on either exchange.")
 
-    search_col, pick_col = st.columns([1, 1])
-    searched_symbol = search_col.text_input("Type an NSE symbol (e.g. WIPRO, ZOMATO, BAJFINANCE)").strip().upper()
+    search_col, exch_col, pick_col = st.columns([1.2, 0.6, 1.2])
+    searched_symbol = search_col.text_input("Type a symbol (e.g. WIPRO, or a BSE scrip code like 500325)").strip().upper()
+    search_exchange = exch_col.selectbox("Exchange", ["NSE", "BSE"])
     picked_symbol = pick_col.selectbox("...or pick from today's screen", ["—"] + sorted(results_df["symbol"].unique()))
 
     symbol = searched_symbol if searched_symbol else (picked_symbol if picked_symbol != "—" else None)
@@ -217,23 +236,26 @@ with tab_detail:
         st.info("👆 Type a symbol or pick one from today's screen to see details.")
     else:
         # If it's already in today's screen, reuse that row (no extra fetch needed);
-        # otherwise fetch + score it fresh on the spot.
+        # otherwise fetch + score it fresh on the spot, using the chosen exchange
+        # when it was typed in (picks from the screen already know their exchange).
         existing = results_df[results_df["symbol"] == symbol]
-        if not existing.empty:
+        if not existing.empty and not searched_symbol:
             row = existing.iloc[0].to_dict()
+            row_exchange = row["exchange"]
         else:
-            with st.spinner(f"Fetching {symbol}..."):
-                hist_map = data_fetcher.get_historical_bulk([symbol])
+            row_exchange = search_exchange
+            with st.spinner(f"Fetching {symbol} ({row_exchange})..."):
+                hist_map = data_fetcher.get_historical_bulk([{"symbol": symbol, "exchange": row_exchange}])
                 hist = hist_map.get(symbol)
                 if hist is None or hist.empty:
-                    st.error(f"Couldn't find data for '{symbol}' — check the symbol is a valid NSE trading symbol (not company name).")
+                    st.error(f"Couldn't find data for '{symbol}' on {row_exchange} — check the symbol/scrip code is correct.")
                     st.stop()
                 ind_df = indicators.enrich_with_indicators(hist)
                 st_score = screener.score_short_term(ind_df)
-                fund = fundamentals.get_fundamentals(symbol)
+                fund = fundamentals.get_fundamentals(symbol, exchange=row_exchange)
                 lt_score = screener.score_long_term(fund, ind_df)
                 row = {
-                    "symbol": symbol, "name": fund.get("name", symbol),
+                    "symbol": symbol, "exchange": row_exchange, "name": fund.get("name", symbol),
                     "last_close": st_score.get("last_close"),
                     "pe_ratio": fund.get("pe_ratio"), "roe_pct": fund.get("roe_pct"),
                     "debt_to_equity": fund.get("debt_to_equity"), "market_cap_cr": fund.get("market_cap_cr"),
@@ -243,6 +265,7 @@ with tab_detail:
                     "long_term_notes": "; ".join(lt_score.get("notes", [])),
                 }
 
+        st.caption(f"Exchange: **{row_exchange}**")
         c1, c2, c3 = st.columns(3)
         c1.metric("Last Close", f"₹{row['last_close']:.2f}" if pd.notna(row["last_close"]) else "N/A")
         c2.metric("Short-Term Score", row["short_term_score"], row["short_term_signal"])
@@ -259,7 +282,7 @@ with tab_detail:
         st.write("**Long-term reasoning:**", row["long_term_notes"] or "—")
 
         try:
-            hist = data_fetcher.get_historical_bulk([symbol]).get(symbol)
+            hist = data_fetcher.get_historical_bulk([{"symbol": symbol, "exchange": row_exchange}]).get(symbol)
             if hist is not None and not hist.empty:
                 ind_df = indicators.enrich_with_indicators(hist)
                 chart_df = ind_df.set_index("date")[["close", "sma_20", "sma_50", "sma_200"]]
@@ -271,7 +294,7 @@ with tab_detail:
 
         st.write("**📚 Research this stock elsewhere**")
         st.caption("Opens each platform's own page in a new tab — sign in there for any Pro/paid analyst content.")
-        links = research_links.get_research_links(symbol)
+        links = research_links.get_research_links(symbol, exchange=row_exchange)
         link_cols = st.columns(len(links))
         for col, (platform, url) in zip(link_cols, links.items()):
             col.link_button(platform, url, use_container_width=True)

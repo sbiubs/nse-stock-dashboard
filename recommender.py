@@ -1,12 +1,11 @@
 """
 Orchestrates the full pipeline: batch-fetch historical data for the
-whole universe -> compute indicators + fundamentals -> score -> rank ->
-return the day's top N buy/sell candidates for both short-term and
-long-term horizons.
+whole universe (NSE and/or BSE) -> compute indicators + fundamentals
+-> score -> rank -> return the day's top N buy/sell candidates for
+both short-term and long-term horizons.
 
-No broker login required — everything runs off free Yahoo Finance data,
-so this can run fully unattended (e.g. on a schedule) with zero manual
-steps.
+No broker login required — everything runs off free Yahoo Finance
+data, so this can run fully unattended with zero manual steps.
 """
 import pandas as pd
 
@@ -16,20 +15,27 @@ import fundamentals
 import screener
 
 
-def run_full_screen(symbols: list[str], progress_callback=None) -> pd.DataFrame:
+def run_full_screen(stocks: list[dict], progress_callback=None) -> pd.DataFrame:
     """
+    stocks: list of {"symbol": ..., "exchange": "NSE"|"BSE"} (or plain
+    symbol strings, treated as NSE, for backward compatibility).
     Returns a DataFrame, one row per symbol, with both short-term and
-    long-term scores/signals plus the key ratios, ready to filter/sort
-    in the dashboard.
+    long-term scores/signals, exchange tag, and key ratios.
     """
-    if progress_callback:
-        progress_callback(0, len(symbols), "Fetching historical price data (batched)...")
+    if stocks and isinstance(stocks[0], str):
+        stocks = [{"symbol": s, "exchange": "NSE"} for s in stocks]
 
-    hist_by_symbol = data_fetcher.get_historical_bulk(symbols)
+    if progress_callback:
+        progress_callback(0, len(stocks), "Fetching historical price data (batched)...")
+
+    hist_by_symbol = data_fetcher.get_historical_bulk(stocks)
+    exchange_by_symbol = {s["symbol"]: s["exchange"] for s in stocks}
 
     rows = []
-    total = len(symbols)
-    for i, sym in enumerate(symbols):
+    total = len(stocks)
+    for i, s in enumerate(stocks):
+        sym = s["symbol"]
+        exch = s["exchange"]
         if progress_callback:
             progress_callback(i + 1, total, sym)
 
@@ -40,11 +46,12 @@ def run_full_screen(symbols: list[str], progress_callback=None) -> pd.DataFrame:
         ind_df = indicators.enrich_with_indicators(hist)
         st = screener.score_short_term(ind_df)
 
-        fund = fundamentals.get_fundamentals(sym)
+        fund = fundamentals.get_fundamentals(sym, exchange=exch)
         lt = screener.score_long_term(fund, ind_df)
 
         rows.append({
             "symbol": sym,
+            "exchange": exch,
             "name": fund.get("name", sym),
             "sector": fund.get("sector"),
             "last_close": st.get("last_close"),
@@ -68,8 +75,7 @@ def run_full_screen(symbols: list[str], progress_callback=None) -> pd.DataFrame:
 def get_daily_top_calls(results_df: pd.DataFrame, top_n: int = None) -> dict:
     """
     Splits the full screen results into the day's top buy/sell calls
-    for each horizon. Ties are broken arbitrarily (pandas default sort)
-    since a 0.1-point score difference has no real predictive meaning.
+    for each horizon, across whichever exchange(s) were screened.
     """
     import config
     top_n = top_n or config.TOP_N

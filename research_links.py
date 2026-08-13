@@ -16,14 +16,28 @@ site-scoped search link instead — one click still gets you there.
 """
 
 
-def get_research_links(symbol: str) -> dict:
+def get_research_links(symbol: str, exchange: str = "NSE") -> dict:
     symbol = symbol.strip().upper()
-    return {
-        "Screener.in": f"https://www.screener.in/company/{symbol}/",
-        "NSE Official": f"https://www.nseindia.com/get-quotes/equity?symbol={symbol}",
-        "Google Finance": f"https://www.google.com/finance/quote/{symbol}:NSE",
+
+    if exchange == "NSE":
+        direct_links = {
+            "Screener.in": f"https://www.screener.in/company/{symbol}/",
+            "NSE Official": f"https://www.nseindia.com/get-quotes/equity?symbol={symbol}",
+            "Google Finance": f"https://www.google.com/finance/quote/{symbol}:NSE",
+        }
+    else:
+        # BSE scrip codes/symbols don't map to clean Screener/NSE URLs the
+        # way NSE symbols do, so those go through search links too here.
+        direct_links = {
+            "BSE Official": f"https://www.bseindia.com/stock-share-price/searchresult.aspx?scriptcode={symbol}",
+            "Google Finance": f"https://www.google.com/finance/quote/{symbol}:BOM",
+            "Screener.in": f"https://www.google.com/search?q={symbol}+site:screener.in",
+        }
+
+    search_links = {
         "MoneyControl": f"https://www.google.com/search?q={symbol}+site:moneycontrol.com",
         "Trendlyne": f"https://www.google.com/search?q={symbol}+site:trendlyne.com",
         "Tickertape": f"https://www.google.com/search?q={symbol}+site:tickertape.in",
         "StockEdge": f"https://www.google.com/search?q={symbol}+site:stockedge.com",
     }
+    return {**direct_links, **search_links}

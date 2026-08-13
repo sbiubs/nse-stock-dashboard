@@ -20,14 +20,16 @@ def _safe_get(d: dict, key: str, default=None):
     return val if val is not None else default
 
 
-def get_fundamentals(nse_symbol: str) -> dict:
+def get_fundamentals(nse_symbol: str, exchange: str = "NSE") -> dict:
     """
-    nse_symbol: plain NSE trading symbol, e.g. "RELIANCE", "TCS".
+    nse_symbol: plain trading symbol, e.g. "RELIANCE", "TCS" (or a BSE
+    scrip code/short name when exchange="BSE").
     Returns a dict of key ratios; missing values come back as None so
     the caller can decide how to treat gaps (rather than silently
     defaulting to 0, which would distort scoring).
     """
-    ticker = yf.Ticker(f"{nse_symbol}.NS")
+    suffix = ".NS" if exchange == "NSE" else ".BO"
+    ticker = yf.Ticker(f"{nse_symbol}{suffix}")
     try:
         info = ticker.info
     except Exception:
