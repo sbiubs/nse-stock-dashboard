@@ -48,8 +48,11 @@ sidebar goes straight to picking your universe and running a screen.
 3. Click **Run today's screen**.
 4. Browse tabs: Overview (top 5 calls), Live Snapshot (auto-refreshing
    delayed prices + move alerts), Short-Term Calls, Long-Term Calls,
-   Stock Detail (with price chart), and Full Screen (every stock,
-   sortable).
+   **Search & Stock Detail** (look up *any* NSE stock by symbol, not
+   just today's screened list — scores it fresh on the spot, plus
+   one-click links to Screener, MoneyControl, Trendlyne, Tickertape,
+   StockEdge, NSE, and Google Finance for deeper research), and Full
+   Screen (every stock, sortable).
 5. Download the **Excel report** — color-coded Buy/Sell/Hold sheets,
    ready to file or share.
 
@@ -88,16 +91,24 @@ Cloud (free), no secrets to configure since there's no API key.
 | `screener.py` | Scoring rules (short-term technical, long-term fundamental) |
 | `recommender.py` | Orchestrates the full screen, ranks top 5 buy/sell |
 | `live_poller.py` | Auto-refresh snapshot polling for the Live tab |
+| `research_links.py` | One-click links out to external research platforms per stock |
 | `excel_export.py` | Color-coded multi-sheet Excel report builder |
 | `custom_watchlist.csv` | Your own symbol list, if not using Nifty 50/500 |
 
-## A note on data sources not used here
+## A note on external research platforms
 
 Sites like Screener.in, MoneyControl, Trendlyne, Tickertape, Groww, and
 Tijori all explicitly prohibit automated scraping in their terms of
 service, and actively block bot traffic. This build intentionally
 avoids scraping them — Yahoo Finance's data is public, free, and meant
-for exactly this kind of programmatic use. If you have a paid data
-vendor subscription (e.g. Screener's API-adjacent export tools,
-Trendlyne's paid plans) you're welcome to swap in your own fetcher
-module using the same interface as `data_fetcher.py`.
+for exactly this kind of programmatic use.
+
+Instead, the **Search & Stock Detail** tab gives you one-click links
+out to each platform's own page for any stock you look up (via
+`research_links.py`) — so you can quickly check analyst calls, ratings,
+or Pro-tier research on MoneyControl/Trendlyne/etc. under your own
+login, without the app ever touching your credentials or their
+content. If you have a paid data vendor subscription with an actual
+API (some paid Trendlyne/Tijori tiers offer one), you're welcome to
+swap in your own fetcher module using the same interface as
+`data_fetcher.py`.

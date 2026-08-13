@@ -9,9 +9,12 @@ import pandas as pd
 import config
 import data_fetcher
 import indicators
+import fundamentals
+import screener
 import recommender
 import excel_export
 import live_poller
+import research_links
 
 st.set_page_config(page_title="NSE Stock Dashboard", layout="wide", page_icon="📈")
 
@@ -76,7 +79,7 @@ results_df = st.session_state.results_df
 top_calls = st.session_state.top_calls
 
 tab_overview, tab_live, tab_short, tab_long, tab_detail, tab_full = st.tabs(
-    ["📊 Overview", "🔄 Live Snapshot", "⚡ Short-Term Calls", "🏛️ Long-Term Calls", "🔎 Stock Detail", "📋 Full Screen"]
+    ["📊 Overview", "🔄 Live Snapshot", "⚡ Short-Term Calls", "🏛️ Long-Term Calls", "🔎 Search & Stock Detail", "📋 Full Screen"]
 )
 
 with tab_overview:
@@ -201,34 +204,77 @@ with tab_long:
     st.dataframe(top_calls["long_term_sells"], use_container_width=True, hide_index=True)
 
 with tab_detail:
-    symbol = st.selectbox("Select a stock", sorted(results_df["symbol"].unique()))
-    row = results_df[results_df["symbol"] == symbol].iloc[0]
+    st.subheader("🔎 Look up any NSE stock")
+    st.caption("Not limited to today's screened list — search any NSE-listed symbol directly.")
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Last Close", f"₹{row['last_close']:.2f}" if pd.notna(row["last_close"]) else "N/A")
-    c2.metric("Short-Term Score", row["short_term_score"], row["short_term_signal"])
-    c3.metric("Long-Term Score", row["long_term_score"], row["long_term_signal"])
+    search_col, pick_col = st.columns([1, 1])
+    searched_symbol = search_col.text_input("Type an NSE symbol (e.g. WIPRO, ZOMATO, BAJFINANCE)").strip().upper()
+    picked_symbol = pick_col.selectbox("...or pick from today's screen", ["—"] + sorted(results_df["symbol"].unique()))
 
-    st.write("**Fundamentals**")
-    fcol1, fcol2, fcol3, fcol4 = st.columns(4)
-    fcol1.metric("P/E", f"{row['pe_ratio']:.1f}" if pd.notna(row["pe_ratio"]) else "N/A")
-    fcol2.metric("ROE %", f"{row['roe_pct']:.1f}" if pd.notna(row["roe_pct"]) else "N/A")
-    fcol3.metric("Debt/Equity", f"{row['debt_to_equity']:.2f}" if pd.notna(row["debt_to_equity"]) else "N/A")
-    fcol4.metric("Mkt Cap (₹ Cr)", f"{row['market_cap_cr']:.0f}" if pd.notna(row["market_cap_cr"]) else "N/A")
+    symbol = searched_symbol if searched_symbol else (picked_symbol if picked_symbol != "—" else None)
 
-    st.write("**Short-term reasoning:**", row["short_term_notes"] or "—")
-    st.write("**Long-term reasoning:**", row["long_term_notes"] or "—")
-
-    try:
-        hist = data_fetcher.get_historical_bulk([symbol]).get(symbol)
-        if hist is not None and not hist.empty:
-            ind_df = indicators.enrich_with_indicators(hist)
-            chart_df = ind_df.set_index("date")[["close", "sma_20", "sma_50", "sma_200"]]
-            st.line_chart(chart_df)
+    if not symbol:
+        st.info("👆 Type a symbol or pick one from today's screen to see details.")
+    else:
+        # If it's already in today's screen, reuse that row (no extra fetch needed);
+        # otherwise fetch + score it fresh on the spot.
+        existing = results_df[results_df["symbol"] == symbol]
+        if not existing.empty:
+            row = existing.iloc[0].to_dict()
         else:
-            st.warning("No historical data available for chart.")
-    except Exception as e:
-        st.warning(f"Couldn't load chart: {e}")
+            with st.spinner(f"Fetching {symbol}..."):
+                hist_map = data_fetcher.get_historical_bulk([symbol])
+                hist = hist_map.get(symbol)
+                if hist is None or hist.empty:
+                    st.error(f"Couldn't find data for '{symbol}' — check the symbol is a valid NSE trading symbol (not company name).")
+                    st.stop()
+                ind_df = indicators.enrich_with_indicators(hist)
+                st_score = screener.score_short_term(ind_df)
+                fund = fundamentals.get_fundamentals(symbol)
+                lt_score = screener.score_long_term(fund, ind_df)
+                row = {
+                    "symbol": symbol, "name": fund.get("name", symbol),
+                    "last_close": st_score.get("last_close"),
+                    "pe_ratio": fund.get("pe_ratio"), "roe_pct": fund.get("roe_pct"),
+                    "debt_to_equity": fund.get("debt_to_equity"), "market_cap_cr": fund.get("market_cap_cr"),
+                    "short_term_score": st_score.get("short_term_score"), "short_term_signal": st_score.get("short_term_signal"),
+                    "short_term_notes": "; ".join(st_score.get("notes", [])),
+                    "long_term_score": lt_score.get("long_term_score"), "long_term_signal": lt_score.get("long_term_signal"),
+                    "long_term_notes": "; ".join(lt_score.get("notes", [])),
+                }
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Last Close", f"₹{row['last_close']:.2f}" if pd.notna(row["last_close"]) else "N/A")
+        c2.metric("Short-Term Score", row["short_term_score"], row["short_term_signal"])
+        c3.metric("Long-Term Score", row["long_term_score"], row["long_term_signal"])
+
+        st.write("**Fundamentals**")
+        fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+        fcol1.metric("P/E", f"{row['pe_ratio']:.1f}" if pd.notna(row["pe_ratio"]) else "N/A")
+        fcol2.metric("ROE %", f"{row['roe_pct']:.1f}" if pd.notna(row["roe_pct"]) else "N/A")
+        fcol3.metric("Debt/Equity", f"{row['debt_to_equity']:.2f}" if pd.notna(row["debt_to_equity"]) else "N/A")
+        fcol4.metric("Mkt Cap (₹ Cr)", f"{row['market_cap_cr']:.0f}" if pd.notna(row["market_cap_cr"]) else "N/A")
+
+        st.write("**Short-term reasoning:**", row["short_term_notes"] or "—")
+        st.write("**Long-term reasoning:**", row["long_term_notes"] or "—")
+
+        try:
+            hist = data_fetcher.get_historical_bulk([symbol]).get(symbol)
+            if hist is not None and not hist.empty:
+                ind_df = indicators.enrich_with_indicators(hist)
+                chart_df = ind_df.set_index("date")[["close", "sma_20", "sma_50", "sma_200"]]
+                st.line_chart(chart_df)
+            else:
+                st.warning("No historical data available for chart.")
+        except Exception as e:
+            st.warning(f"Couldn't load chart: {e}")
+
+        st.write("**📚 Research this stock elsewhere**")
+        st.caption("Opens each platform's own page in a new tab — sign in there for any Pro/paid analyst content.")
+        links = research_links.get_research_links(symbol)
+        link_cols = st.columns(len(links))
+        for col, (platform, url) in zip(link_cols, links.items()):
+            col.link_button(platform, url, use_container_width=True)
 
 with tab_full:
     st.dataframe(results_df, use_container_width=True, hide_index=True)
