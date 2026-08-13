@@ -136,9 +136,19 @@ def _normalize_single_ticker_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     out = df.copy()
+    # Defensive: if a MultiIndex slipped through (e.g. a single-ticker
+    # frame that still carries a redundant top level), flatten it.
+    if isinstance(out.columns, pd.MultiIndex):
+        out.columns = out.columns.get_level_values(-1)
     out = out.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
     out = out.reset_index().rename(columns={"Date": "date", "Datetime": "date"})
     keep = ["date", "open", "high", "low", "close", "volume"]
+    missing = [c for c in ["open", "high", "low", "close", "volume"] if c not in out.columns]
+    if missing:
+        # Column names didn't match what we expected at all (e.g. an
+        # unrecognized yfinance response shape) — return empty rather
+        # than crashing, so the caller can show a clean "no data" message.
+        return pd.DataFrame()
     return out[[c for c in keep if c in out.columns]].dropna(subset=["close"])
 
 
@@ -167,18 +177,23 @@ def get_historical_bulk(stocks: list[dict], period: str = "15mo") -> dict[str, p
     )
 
     result = {}
-    if len(tickers) == 1:
-        result[symbols[0]] = _normalize_single_ticker_df(raw)
-        return result
-
-    for sym, yf_sym in zip(symbols, tickers):
-        try:
-            sub = raw[yf_sym]
-        except (KeyError, TypeError):
-            continue
-        norm = _normalize_single_ticker_df(sub)
-        if not norm.empty:
-            result[sym] = norm
+    if isinstance(raw.columns, pd.MultiIndex):
+        # Multi-ticker shape — also what yfinance sometimes returns even
+        # for a single ticker when group_by="ticker" is set, so this
+        # path is checked by actual column shape, not by len(tickers).
+        for sym, yf_sym in zip(symbols, tickers):
+            try:
+                sub = raw[yf_sym]
+            except (KeyError, TypeError):
+                continue
+            norm = _normalize_single_ticker_df(sub)
+            if not norm.empty:
+                result[sym] = norm
+    else:
+        # Flat columns — single ticker, single-level result.
+        norm = _normalize_single_ticker_df(raw)
+        if not norm.empty and symbols:
+            result[symbols[0]] = norm
     return result
 
 
